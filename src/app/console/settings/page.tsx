@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { Suspense, useEffect, useState, useRef, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { User, CreditCard, BarChart3, ExternalLink } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
@@ -20,7 +20,7 @@ interface Usage {
 
 const VALID_PLANS = ['starter', 'professional', 'enterprise'];
 
-export default function SettingsPage() {
+function SettingsContent() {
   const { user } = useAuthStore();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -273,5 +273,13 @@ export default function SettingsPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense>
+      <SettingsContent />
+    </Suspense>
   );
 }
