@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { User, CreditCard, BarChart3, ExternalLink } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { apiRequest } from '@/lib/api';
@@ -17,52 +18,176 @@ interface Usage {
   throttle: { rateLimit: number; burstLimit: number };
 }
 
+const VALID_PLANS = ['starter', 'professional', 'enterprise'];
+
 export default function SettingsPage() {
   const { user } = useAuthStore();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [sub, setSub] = useState<Subscription | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const upgradeTriggered = useRef(false);
 
   useEffect(() => {
     apiRequest<{ subscription: Subscription }>('GET', '/subscription').then(({ data }) => {
       setSub((data as { subscription?: Subscription }).subscription || null);
-    }).catch((_e) => {});
+    }).catch(() => {});
     apiRequest<Usage>('GET', '/subscription/usage').then(({ data }) => {
       setUsage(data);
-    }).catch((_e) => {});
+    }).catch(() => {});
   }, []);
 
-  const handlePortal = async () => {
-    const { data } = await apiRequest<{ portalUrl: string }>('POST', '/subscription/portal');
-    if ((data as { portalUrl?: string }).portalUrl) window.open((data as { portalUrl: string }).portalUrl, '_blank');
-  };
+  const handleCheckout = useCallback(async (plan: string) => {
+    setError(null);
+    try {
+      const { status, data } = await apiRequest<{
+        checkoutUrl?: string; checkoutId?: string; message?: string;
+        apiKey?: string; subscription?: { plan: string; status: string; currentPeriodEnd: string };
+        error?: string;
+      }>('POST', '/subscription/checkout', { plan, successUrl: window.location.origin + '/console/checkout/success?checkout_id={CHECKOUT_ID}' });
 
-  const handleCheckout = async (plan: string) => {
-    const { data } = await apiRequest<{ checkoutUrl: string }>('POST', '/subscription/checkout', {
-      plan, successUrl: window.location.origin + '/console/settings',
-    });
-    if ((data as { checkoutUrl?: string }).checkoutUrl) window.open((data as { checkoutUrl: string }).checkoutUrl, '_blank');
-  };
+      if (status === 409) {
+        setError((data as { error?: string }).error || 'You already have an active subscription. Use plan switching to change plans.');
+        return;
+      }
+
+      if (status === 0) {
+        setError('Something went wrong. Please check your connection and try again.');
+        return;
+      }
+
+      if (status >= 400) {
+        setError((data as { error?: string }).error || 'Something went wrong. Please try again.');
+        return;
+      }
+
+      // Starter instant activation — response has apiKey instead of checkoutUrl
+      if (data.apiKey) {
+        localStorage.setItem('kdb_api_key', data.apiKey);
+        if (data.subscription) {
+          setSub((prev) => prev ? { ...prev, ...data.subscription } : { ...data.subscription, apiKey: data.apiKey!, createdAt: '', updatedAt: '', currentPeriodStart: '' } as Subscription);
+        }
+        return;
+      }
+
+      // Paid plan — redirect to Polar checkout
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      }
+    } catch {
+      setError('Something went wrong. Please check your connection and try again.');
+    }
+  }, []);
+
+  const handleChangePlan = useCallback(async (newPlan: string) => {
+    setError(null);
+    try {
+      const { status, data } = await apiRequest<{
+        apiKey?: string; subscription?: Subscription; error?: string;
+      }>('POST', '/subscription/change', { newPlan });
+
+      if (status === 400) {
+        setError((data as { error?: string }).error || 'Free plan users must upgrade through checkout. Please use the Upgrade button.');
+        return;
+      }
+
+      if (status === 0) {
+        setError('Something went wrong. Please check your connection and try again.');
+        return;
+      }
+
+      if (status >= 400) {
+        setError((data as { error?: string }).error || 'Something went wrong. Please try again.');
+        return;
+      }
+
+      if (data.apiKey) localStorage.setItem('kdb_api_key', data.apiKey);
+      if (data.subscription) setSub((prev) => prev ? { ...prev, ...data.subscription } : prev);
+    } catch {
+      setError('Something went wrong. Please check your connection and try again.');
+    }
+  }, []);
+
+  const handleCancel = useCallback(async () => {
+    if (!confirm('Are you sure you want to cancel your subscription? Access continues until the end of the current period.')) return;
+    setError(null);
+    try {
+      const { status, data } = await apiRequest<{
+        subscription?: Subscription; error?: string;
+      }>('POST', '/subscription/cancel');
+
+      if (status === 404) {
+        setError((data as { error?: string }).error || 'Free plans cannot be canceled.');
+        return;
+      }
+
+      if (status === 0) {
+        setError('Something went wrong. Please check your connection and try again.');
+        return;
+      }
+
+      if (status >= 400) {
+        setError((data as { error?: string }).error || 'Something went wrong. Please try again.');
+        return;
+      }
+
+      if (data.subscription) setSub((prev) => prev ? { ...prev, ...data.subscription } : prev);
+    } catch {
+      setError('Something went wrong. Please check your connection and try again.');
+    }
+  }, []);
+
+  const handlePortal = useCallback(async () => {
+    setError(null);
+    try {
+      const { status, data } = await apiRequest<{
+        portalUrl?: string; error?: string;
+      }>('POST', '/subscription/portal');
+
+      if (status === 500) {
+        setError((data as { error?: string }).error || 'Billing portal is only available for paid plans.');
+        return;
+      }
+
+      if (status === 0) {
+        setError('Something went wrong. Please check your connection and try again.');
+        return;
+      }
+
+      if (status >= 400) {
+        setError((data as { error?: string }).error || 'Something went wrong. Please try again.');
+        return;
+      }
+
+      if (data.portalUrl) window.open(data.portalUrl, '_blank');
+    } catch {
+      setError('Something went wrong. Please check your connection and try again.');
+    }
+  }, []);
+
+  // Task 3.3: Auto-trigger checkout from ?upgrade=plan query param
+  useEffect(() => {
+    if (upgradeTriggered.current) return;
+    const upgradePlan = searchParams.get('upgrade');
+    if (upgradePlan && VALID_PLANS.includes(upgradePlan.toLowerCase())) {
+      upgradeTriggered.current = true;
+      handleCheckout(upgradePlan.toLowerCase()).finally(() => {
+        router.replace('/console/settings');
+      });
+    }
+  }, [searchParams, handleCheckout, router]);
 
   const planColors: Record<string, string> = {
     free: 'bg-bg-tertiary text-text-muted', starter: 'bg-blue/15 text-blue',
     professional: 'bg-accent/15 text-accent', enterprise: 'bg-green/15 text-green',
   };
 
-  const handleChangePlan = async (newPlan: string) => {
-    const { status, data } = await apiRequest<{ apiKey?: string; subscription?: Subscription }>('POST', '/subscription/change', { newPlan });
-    if (status === 200) {
-      if ((data as { apiKey?: string }).apiKey) localStorage.setItem('kdb_api_key', (data as { apiKey: string }).apiKey);
-      if ((data as { subscription?: Subscription }).subscription) setSub((prev) => prev ? { ...prev, ...(data as { subscription: Subscription }).subscription } : prev);
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!confirm('Are you sure you want to cancel your subscription? Access continues until the end of the current period.')) return;
-    const { status, data } = await apiRequest<{ subscription?: Subscription }>('POST', '/subscription/cancel', { immediate: false });
-    if (status === 200 && (data as { subscription?: Subscription }).subscription) {
-      setSub((prev) => prev ? { ...prev, ...(data as { subscription: Subscription }).subscription } : prev);
-    }
-  };
+  const currentPlan = sub?.plan?.toLowerCase();
+  const isStarter = currentPlan === 'starter' || currentPlan === 'free';
+  const isProfessional = currentPlan === 'professional';
+  const isEnterprise = currentPlan === 'enterprise';
+  const isPaid = isProfessional || isEnterprise;
 
   return (
     <div className="max-w-[900px] mx-auto px-6 py-8 w-full">
@@ -90,11 +215,39 @@ export default function SettingsPage() {
                 <span className="text-text-muted">Current Period</span>
                 <span className="text-text-primary text-xs">{sub.currentPeriodStart?.split('T')[0]} → {sub.currentPeriodEnd?.split('T')[0]}</span>
               </div>
-              <div className="flex gap-2 pt-2">
-                <button onClick={handlePortal} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border rounded-lg hover:bg-bg-hover text-text-secondary transition-colors"><ExternalLink size={12} /> Manage Billing</button>
-                {sub.plan !== 'professional' && <button onClick={() => handleCheckout('professional')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent text-white rounded-lg hover:opacity-90 transition-opacity">Upgrade to Professional</button>}
-                {sub.plan === 'professional' && sub.status === 'active' && <button onClick={() => handleChangePlan('starter')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border rounded-lg hover:bg-bg-hover text-text-secondary transition-colors">Downgrade to Starter</button>}
-                {sub.status === 'active' && sub.plan !== 'free' && <button onClick={handleCancel} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-accent/30 rounded-lg hover:bg-accent/10 text-accent transition-colors">Cancel Subscription</button>}
+
+              {error && (
+                <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2 flex-wrap">
+                {/* Starter plan: show upgrade buttons */}
+                {isStarter && (
+                  <>
+                    <button onClick={() => handleCheckout('professional')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent text-white rounded-lg hover:opacity-90 transition-opacity">Upgrade to Professional</button>
+                    <button onClick={() => handleCheckout('enterprise')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green text-white rounded-lg hover:opacity-90 transition-opacity">Upgrade to Enterprise</button>
+                  </>
+                )}
+
+                {/* Professional plan: switch to enterprise */}
+                {isProfessional && (
+                  <button onClick={() => handleChangePlan('enterprise')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border rounded-lg hover:bg-bg-hover text-text-secondary transition-colors">Switch to Enterprise</button>
+                )}
+
+                {/* Enterprise plan: switch to professional */}
+                {isEnterprise && (
+                  <button onClick={() => handleChangePlan('professional')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border rounded-lg hover:bg-bg-hover text-text-secondary transition-colors">Switch to Professional</button>
+                )}
+
+                {/* Paid plans: cancel and manage billing */}
+                {isPaid && (
+                  <>
+                    <button onClick={handleCancel} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-accent/30 rounded-lg hover:bg-accent/10 text-accent transition-colors">Cancel Subscription</button>
+                    <button onClick={handlePortal} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border rounded-lg hover:bg-bg-hover text-text-secondary transition-colors"><ExternalLink size={12} /> Manage Billing</button>
+                  </>
+                )}
               </div>
             </>
           ) : <p className="text-sm text-text-muted">Loading subscription...</p>}

@@ -1,10 +1,14 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import Logo from '@/components/layout/Logo';
 import ThemeToggle from '@/components/layout/ThemeToggle';
+import { useAuthStore } from '@/stores/authStore';
+import { apiRequest } from '@/lib/api';
+import { isLoggedIn } from '@/lib/auth';
 import { Brain, Settings2, Plug, MessageSquare, FileText, PenTool, Database, Terminal, BarChart3, Code, Rocket, Shield, Mail, MapPin, Zap, ExternalLink, ChevronDown, ChevronUp, Briefcase, Building, Sprout } from 'lucide-react';
 
 const features = [
@@ -29,9 +33,9 @@ const solutions = [
 ];
 
 const pricing = [
-  { icon: Sprout, title: 'Starter', price: '$29', period: '/mo', desc: 'Perfect for individuals and small projects getting started with LLM applications', items: ['5 LLM Applications', '10K API Calls/month', 'Basic Templates', 'Community Support'], cta: 'Start Free Trial' },
-  { icon: Briefcase, title: 'Professional', price: '$99', period: '/mo', desc: 'Ideal for growing businesses and development teams building production apps', items: ['Unlimited Applications', '100K API Calls/month', 'Custom Model Training', 'Priority Support'], cta: 'Get Started', featured: true },
-  { icon: Building, title: 'Enterprise', price: 'Custom', period: '', desc: 'Scalable solutions for large organizations with advanced security and compliance needs', items: ['Unlimited Everything', 'Dedicated Infrastructure', 'Advanced Security', '24/7 Support'], cta: 'Contact Sales' },
+  { icon: Sprout, title: 'Starter', price: 'Free', period: '', desc: 'Perfect for individuals and small projects getting started with LLM applications', items: ['5 LLM Applications', '10K API Calls/month', 'Basic Templates', 'Community Support'], cta: 'Get Started', plan: 'starter' },
+  { icon: Briefcase, title: 'Professional', price: '€9.99', period: '/mo', desc: 'Ideal for growing businesses and development teams building production apps', items: ['Unlimited Applications', '100K API Calls/month', 'Custom Model Training', 'Priority Support'], cta: 'Get Started', featured: true, plan: 'professional' },
+  { icon: Building, title: 'Enterprise', price: 'Custom', period: '', desc: 'Scalable solutions for large organizations with advanced security and compliance needs', items: ['Unlimited Everything', 'Dedicated Infrastructure', 'Advanced Security', '24/7 Support'], cta: 'Contact Sales', plan: 'enterprise' },
 ];
 
 const slides = [
@@ -40,11 +44,18 @@ const slides = [
 ];
 
 export default function LandingPage() {
+  const router = useRouter();
+  const { hydrate } = useAuthStore();
   const [openAccordion, setOpenAccordion] = useState(0);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -73,6 +84,50 @@ export default function LandingPage() {
       setMobileMenu(false);
     }
   }, []);
+
+  const handlePricingCTA = async (plan: string) => {
+    if (!isLoggedIn()) {
+      if (plan === 'starter') {
+        router.push('/signup');
+      } else {
+        router.push('/login?plan=' + plan);
+      }
+      return;
+    }
+
+    setLoadingPlan(plan);
+    try {
+      const { status, data } = await apiRequest<{
+        checkoutUrl?: string;
+        checkoutId?: string;
+        apiKey?: string;
+        subscription?: object;
+        error?: string;
+      }>('POST', '/subscription/checkout', { plan, successUrl: window.location.origin + '/console/checkout/success?checkout_id={CHECKOUT_ID}' });
+
+      if (status === 409) {
+        alert('You already have an active subscription');
+        router.push('/console/settings');
+        return;
+      }
+
+      if (status >= 400) {
+        alert(data?.error || 'Something went wrong. Please try again.');
+        return;
+      }
+
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else if (data.apiKey) {
+        localStorage.setItem('kdb_api_key', data.apiKey);
+        router.push('/console');
+      }
+    } catch {
+      alert('Something went wrong. Please check your connection and try again.');
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-bg-primary">
@@ -211,8 +266,10 @@ export default function LandingPage() {
                 <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-accent/10 mx-auto mb-5">
                   <p.icon size={32} className="text-accent" />
                 </div>
-                <h3 className="text-xl font-bold text-text-primary mb-2">{p.title}</h3>
-                <div className="text-4xl font-bold text-text-primary mb-2">{p.price}<span className="text-base font-normal text-text-muted">{p.period}</span></div>
+                <h3 className="text-xl font-bold text-text-primary mb-4">{p.title}</h3>
+                <div className="text-4xl font-bold text-accent mb-1">{p.price}</div>
+                {p.period && <div className="text-base text-text-muted mb-4">{p.period}</div>}
+                {!p.period && <div className="mb-4" />}
                 <p className="text-sm text-text-secondary mb-8 leading-relaxed">{p.desc}</p>
                 <ul className="text-left space-y-3 mb-8">
                   {p.items.map((item, j) => (
@@ -221,9 +278,9 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <a href="#contact" onClick={(e) => smoothScroll(e, '#contact')} className="block w-full py-3 text-center text-sm font-medium border border-border rounded-lg hover:border-accent hover:text-accent transition-colors text-text-secondary uppercase tracking-wider">
-                  {p.cta}
-                </a>
+                <button onClick={() => handlePricingCTA(p.plan)} disabled={loadingPlan === p.plan} className="block w-full py-3 text-center text-sm font-medium border border-border rounded-lg hover:border-accent hover:text-accent transition-colors text-text-secondary uppercase tracking-wider">
+                  {loadingPlan === p.plan ? 'Loading...' : p.cta}
+                </button>
               </div>
             ))}
           </div>

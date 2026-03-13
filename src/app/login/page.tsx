@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Logo from '@/components/layout/Logo';
 import { login, setTokens } from '@/lib/auth';
@@ -9,6 +9,8 @@ import { useAuthStore } from '@/stores/authStore';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const plan = searchParams.get('plan');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -23,7 +25,7 @@ export default function LoginPage() {
       if (status === 200) {
         setTokens(data);
         useAuthStore.getState().hydrate();
-        router.push('/console');
+        router.push(plan ? `/console/settings?upgrade=${plan}` : '/console');
       } else {
         setError((data as { message?: string }).message || 'Login failed');
       }

@@ -45,12 +45,26 @@ export default function SubscriptionDocsPage() {
             { name: 'successUrl', type: 'string', desc: 'URL to redirect after successful payment.' },
           ]}
           codeTabs={[
-            { label: 'Request', content: '// POST /subscription/checkout\n{\n  "plan": "professional",\n  "successUrl": "https://knowledgedb.dev/console/settings"\n}' },
+            { label: 'Request', content: '// POST /subscription/checkout\n{\n  "plan": "professional",\n  "successUrl": "https://knowledgedb.dev/console/checkout/success?checkout_id={CHECKOUT_ID}"\n}' },
             { label: 'Response', content: '// 200 OK\n{\n  "checkoutUrl": "https://polar.sh/checkout/..."\n}' },
           ]}
           testFields={[
             { name: 'plan', type: 'select', options: ['starter', 'professional'], defaultValue: 'professional' },
-            { name: 'successUrl', placeholder: 'https://knowledgedb.dev/console/settings' },
+            { name: 'successUrl', placeholder: 'https://knowledgedb.dev/console/checkout/success?checkout_id={CHECKOUT_ID}' },
+          ]}
+        />
+
+        <EndpointBlock method="POST" title="Confirm Checkout" path="/subscription/confirm" id="confirm"
+          description="Confirm a checkout session after the user completes payment on Polar. Call this on your success page to activate the subscription and receive the new API key."
+          requestParams={[
+            { name: 'checkoutId', type: 'string', required: true, desc: 'The checkout ID from the Polar redirect URL query parameter.' },
+          ]}
+          codeTabs={[
+            { label: 'Request', content: '// POST /subscription/confirm\n{\n  "checkoutId": "466de8b3-d631-451d-ac6d-e6f1d595301b"\n}' },
+            { label: 'Response', content: '// 200 OK\n{\n  "message": "Subscription activated",\n  "subscription": {\n    "plan": "professional",\n    "status": "active",\n    "apiKey": "ak_newkey",\n    "currentPeriodEnd": "2026-04-12T00:00:00Z"\n  }\n}' },
+          ]}
+          testFields={[
+            { name: 'checkoutId', placeholder: '466de8b3-d631-451d-ac6d-e6f1d595301b' },
           ]}
         />
 
