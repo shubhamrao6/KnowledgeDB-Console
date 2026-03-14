@@ -11,6 +11,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const plan = searchParams.get('plan');
+  const message = searchParams.get('message');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -46,6 +47,11 @@ function LoginForm() {
           <p className="text-sm text-text-muted mt-1">Sign in to your account</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {message === 'upgrade_success' && (
+            <div className="bg-green/10 border border-green/30 text-green text-sm rounded-lg px-4 py-2.5">
+              Your plan has been upgraded successfully. Please sign in again to activate your new subscription.
+            </div>
+          )}
           {error && <div className="bg-accent/10 border border-accent/30 text-accent text-sm rounded-lg px-4 py-2.5">{error}</div>}
           <div>
             <label htmlFor="email" className="block text-sm text-text-secondary mb-1.5">Email</label>

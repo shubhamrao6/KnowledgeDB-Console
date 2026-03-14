@@ -86,6 +86,13 @@ export default function LandingPage() {
   }, []);
 
   const handlePricingCTA = async (plan: string) => {
+    // Enterprise: scroll to contact section
+    if (plan === 'enterprise') {
+      const el = document.querySelector('#contact');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
     if (!isLoggedIn()) {
       if (plan === 'starter') {
         router.push('/signup');

@@ -43,7 +43,6 @@ const apps = [
 const planColors: Record<string, string> = {
   starter: 'bg-blue/15 text-blue',
   professional: 'bg-accent/15 text-accent',
-  enterprise: 'bg-green/15 text-green',
 };
 
 export default function ConsoleDashboard() {

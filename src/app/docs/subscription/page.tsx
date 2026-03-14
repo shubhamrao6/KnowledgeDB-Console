@@ -12,12 +12,14 @@ export default function SubscriptionDocsPage() {
       </div>
       <div className="max-w-[1100px] mx-auto px-8 pb-10">
         <EndpointBlock method="GET" title="Get Subscription" path="/subscription" id="get-subscription"
-          description="Retrieve the current user's subscription details."
+          description="Retrieve the current user's subscription details. Returns the subscription object or null if no subscription exists."
           responseFields={[
-            { name: 'subscription', type: 'object', desc: 'Subscription object with plan, status, apiKey, period dates.' },
+            { name: 'subscription', type: 'object | null', desc: 'Subscription object with plan, status, apiKey, cancelAtPeriodEnd, period dates, createdAt, updatedAt. Null if no subscription.' },
           ]}
           codeTabs={[
-            { label: 'Response', content: '// GET /subscription\n// 200 OK\n{\n  "subscription": {\n    "plan": "professional",\n    "status": "active",\n    "apiKey": "ak_xxx",\n    "currentPeriodStart": "2026-01-01T00:00:00Z",\n    "currentPeriodEnd": "2026-02-01T00:00:00Z"\n  }\n}' },
+            { label: 'Active', content: '// GET /subscription\n// 200 OK — active subscription\n{\n  "subscription": {\n    "plan": "starter",\n    "status": "active",\n    "apiKey": "abc123...",\n    "cancelAtPeriodEnd": false,\n    "currentPeriodStart": "2026-03-12T...",\n    "currentPeriodEnd": "2026-04-12T...",\n    "createdAt": "2026-03-12T...",\n    "updatedAt": "2026-03-12T..."\n  }\n}' },
+            { label: 'Pending Cancel', content: '// GET /subscription\n// 200 OK — pending cancellation\n{\n  "subscription": {\n    "plan": "professional",\n    "status": "active",\n    "apiKey": "abc123...",\n    "cancelAtPeriodEnd": true,\n    "currentPeriodStart": "2026-03-12T...",\n    "currentPeriodEnd": "2026-04-12T...",\n    "createdAt": "2026-03-12T...",\n    "updatedAt": "2026-03-12T..."\n  }\n}' },
+            { label: 'No Subscription', content: '// GET /subscription\n// 200 OK — no subscription\n{\n  "subscription": null,\n  "message": "No subscription found. Use /subscription/checkout to subscribe."\n}' },
           ]}
           testFields={[]}
         />
@@ -68,32 +70,22 @@ export default function SubscriptionDocsPage() {
           ]}
         />
 
-        <EndpointBlock method="POST" title="Change Plan" path="/subscription/change" id="change"
-          description="Change the current subscription plan. Takes effect immediately."
-          requestParams={[
-            { name: 'newPlan', type: 'string', required: true, desc: 'Target plan (starter, professional, enterprise).' },
-          ]}
-          codeTabs={[
-            { label: 'Request', content: '// POST /subscription/change\n{\n  "newPlan": "starter"\n}' },
-            { label: 'Response', content: '// 200 OK\n{\n  "message": "Plan changed successfully",\n  "subscription": { ... },\n  "apiKey": "ak_newkey"\n}' },
-          ]}
-          testFields={[
-            { name: 'newPlan', type: 'select', options: ['starter', 'professional', 'enterprise'], defaultValue: 'starter' },
-          ]}
-        />
-
         <EndpointBlock method="POST" title="Cancel Subscription" path="/subscription/cancel" id="cancel"
           description="Cancel the current subscription. Access continues until the end of the current billing period."
-          requestParams={[
-            { name: 'immediate', type: 'boolean', desc: 'If true, cancel immediately. Default: false (end of period).' },
-          ]}
           codeTabs={[
-            { label: 'Request', content: '// POST /subscription/cancel\n{\n  "immediate": false\n}' },
-            { label: 'Response', content: '// 200 OK\n{\n  "message": "Subscription cancelled",\n  "subscription": {\n    "status": "cancelled",\n    ...\n  }\n}' },
+            { label: 'Request', content: '// POST /subscription/cancel\n// No body required' },
+            { label: 'Response', content: '// 200 OK\n{\n  "message": "Subscription cancelled",\n  "subscription": {\n    "plan": "professional",\n    "status": "active",\n    "cancelAtPeriodEnd": true,\n    "currentPeriodEnd": "2026-02-01T00:00:00Z"\n  }\n}' },
           ]}
-          testFields={[
-            { name: 'immediate', type: 'select', options: ['false', 'true'], defaultValue: 'false' },
+          testFields={[]}
+        />
+
+        <EndpointBlock method="POST" title="Reactivate Subscription" path="/subscription/reactivate" id="reactivate"
+          description="Reactivate a subscription that has a pending cancellation. Undoes cancelAtPeriodEnd so the subscription renews normally. No request body needed."
+          codeTabs={[
+            { label: 'Response', content: '// POST /subscription/reactivate\n// 200 OK\n{\n  "message": "Subscription reactivated. Cancellation has been undone.",\n  "subscription": {\n    "plan": "professional",\n    "status": "active",\n    "cancelAtPeriodEnd": false,\n    "currentPeriodEnd": "2026-04-12T..."\n  }\n}' },
+            { label: 'Error 400', content: '// POST /subscription/reactivate\n// 400 — not pending cancellation\n{\n  "error": "Subscription is not pending cancellation"\n}\n\n// 400 — starter user\n{\n  "error": "Starter plan does not need reactivation"\n}' },
           ]}
+          testFields={[]}
         />
 
         <EndpointBlock method="POST" title="Customer Portal" path="/subscription/portal" id="portal"

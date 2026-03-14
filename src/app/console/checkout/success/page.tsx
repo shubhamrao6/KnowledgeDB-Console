@@ -1,8 +1,9 @@
 ﻿'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { apiRequest } from '@/lib/api';
+import { logout, clearTokens } from '@/lib/auth';
 
 interface ConfirmResponse {
   message: string;
@@ -16,7 +17,7 @@ interface ConfirmResponse {
 
 type Status = 'confirming' | 'success' | 'error';
 
-export default function CheckoutSuccessPage() {
+function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const confirmedRef = useRef(false);
@@ -48,7 +49,9 @@ export default function CheckoutSuccessPage() {
       if (httpStatus >= 200 && httpStatus < 300 && data.subscription?.apiKey) {
         localStorage.setItem('kdb_api_key', data.subscription.apiKey);
         setStatus('success');
-        router.replace('/console/settings');
+        // Logout and redirect to login with upgrade success message
+        try { await logout(); } catch { clearTokens(); }
+        router.replace('/login?message=upgrade_success');
       } else {
         setStatus('error');
         setErrorMessage("We couldn't confirm your payment. The checkout session may have expired.");
@@ -74,10 +77,7 @@ export default function CheckoutSuccessPage() {
       <div className="flex-1 flex items-center justify-center">
         <div className="bg-bg-card border border-border rounded-xl p-6 max-w-md text-center space-y-4">
           <p className="text-sm text-text-primary">{errorMessage}</p>
-          <a
-            href="/console/settings"
-            className="inline-block px-4 py-2 text-xs bg-accent text-white rounded-lg hover:opacity-90 transition-opacity"
-          >
+          <a href="/console/settings" className="inline-block px-4 py-2 text-xs bg-accent text-white rounded-lg hover:opacity-90 transition-opacity">
             Go to Settings
           </a>
         </div>
@@ -92,5 +92,13 @@ export default function CheckoutSuccessPage() {
         <p className="text-sm text-text-secondary">Redirecting...</p>
       </div>
     </div>
+  );
+}
+
+export default function CheckoutSuccessPage() {
+  return (
+    <Suspense>
+      <CheckoutSuccessContent />
+    </Suspense>
   );
 }
