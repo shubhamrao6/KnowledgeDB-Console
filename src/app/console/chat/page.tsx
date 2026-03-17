@@ -8,6 +8,7 @@ import EmptyState from '@/components/chat/EmptyState';
 import { useChatStore, PAGE_SIZE } from '@/stores/chatStore';
 import { useKBStore } from '@/stores/kbStore';
 import { ChatWebSocket, WSMessage } from '@/lib/websocket';
+import { apiRequest } from '@/lib/api';
 
 export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -147,13 +148,33 @@ export default function ChatPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKBId]);
 
-  const handleSend = useCallback((text: string) => {
+  const handleSend = useCallback(async (text: string) => {
     if (!activeKBId) return;
     addMessage(activeKBId, { id: 'msg_' + Date.now(), role: 'user', content: text, timestamp: Date.now() });
     addMessage(activeKBId, { id: 'msg_' + (Date.now() + 1), role: 'assistant', content: '', timestamp: Date.now() });
     setStreaming(true);
     scrollToBottom();
-    const payload = { action: 'sendMessage', question: text, knowledgeDbId: activeKBId, model_id: 'basic', system_prompt: 'You are a helpful assistant' };
+
+    // Pre-fetch RAG context via /search before sending to WebSocket
+    let ragContext: string | undefined;
+    try {
+      const { status, data } = await apiRequest<{ answer?: string; sources?: Array<{ title: string; score: number; chunk: string }> }>(
+        'POST', '/search', { question: text, knowledge_db: activeKBId, top_k: 5 }
+      );
+      console.log('[Chat] /search response:', { status, data });
+      if (status >= 200 && status < 300 && data.sources?.length) {
+        ragContext = data.sources.map((s) => `[${s.title}] (score: ${s.score})\n${s.chunk}`).join('\n\n');
+      }
+    } catch { /* proceed without context */ }
+
+    console.log('[Chat] RAG context:', ragContext ? ragContext.substring(0, 200) + '...' : 'none');
+
+    const payload: { action: string; [key: string]: unknown } = { action: 'sendMessage', question: text, knowledgeDbId: activeKBId, model_id: 'basic', system_prompt: ragContext
+      ? `You are a helpful assistant. Use the following context from the user's knowledge base to answer their question. If the context is not relevant, you may ignore it.\n\n---\n${ragContext}\n---`
+      : 'You are a helpful assistant' };
+
+    console.log('[Chat] WebSocket payload:', JSON.stringify(payload, null, 2));
+
     if (!wsRef.current?.connected) {
       wsRef.current?.connect();
       setTimeout(() => {
